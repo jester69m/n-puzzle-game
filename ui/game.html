@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>N-Puzzle Game</title>
+    <!-- Include Bootstrap CSS -->
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+
+        .container {
+            text-align: center;
+        }
+
+        h1 {
+            margin-top: 20px;
+        }
+
+        button {
+            font-size: 1.5em;
+            width: 100px;
+            height: 50px;
+            margin: 5px;
+        }
+
+        .puzzle {
+            display: grid;
+            width: 50px;
+            margin-top: 10px;
+            margin-bottom: 10px;
+
+        }
+        .puzzle {
+            margin-left: 415px;
+            grid-template-columns: repeat(4, 1fr);
+        }
+
+        .puzzle-item {
+            border: 2px solid #333;
+            padding: 20px;
+            font-size: 1em;
+            text-align: center;
+            cursor: pointer;
+            width: 60px;
+            height: 60px;
+        }
+
+        input {
+            margin-top: 20px;
+            font-size: 1em;
+            width: 50px;
+            height: 50px;
+            text-align: center;
+        }
+
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>N-Puzzle Game</h1>
+        <div class="col-md-6 mx-auto">
+            <label for="inputValues" class="form-label">Enter Values:</label>
+            <div class="input-group">
+                <input type="text" id="inputValues" class="form-control" style="height: 38px; margin-top: 0;" placeholder="1 2 3 4 5...">
+                <button class="btn btn-primary" style="height: 38px; margin-top:0" onclick="updatePuzzleWithInput()">Apply</button>
+            </div>
+        </div>
+    <div class="puzzle" id="puzzle"></div>
+    <button class="btn btn-success" onclick="shuffle()">Shuffle</button>
+    <button class="btn btn-warning" onclick="solve()">Solve</button>
+    <button class="btn btn-primary" onClick="checkSolvability()">Solvable?</button>
+    <div id="congratulationsModal" class="modal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Congratulations!</h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <p>You solved the puzzle in <span id="congratulationsTime"></span> seconds with <span id="congratulationsSteps"></span> steps!</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-primary" data-dismiss="modal" onclick="shuffle()">Again</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div>
+        <p>Timer: <span id="timer">0</span> seconds</p>
+        <p>Steps: <span id="steps">0</span></p>
+    </div>
+</div>
+
+<!-- Include Bootstrap JS and Popper.js -->
+<script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.5.3/dist/umd/popper.min.js"></script>
+<script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+
+<script>
+    // get from url the size of the puzzle
+    const urlParams = new URLSearchParams(window.location.search);
+    const size = urlParams.get('size');
+    const puzzleSize = size ? parseInt(size) : 4;
+
+
+    let puzzleState = [];
+    let timerInterval;
+    let timerSeconds = 0;
+    let steps = 0;
+
+    function shuffle() {
+        clearInterval(timerInterval);
+        timerSeconds = 0;
+        steps = 0;
+        document.getElementById("steps").textContent = steps;
+        puzzleState = generateInitialState();
+        updatePuzzleUI();
+        startTimer();
+    }
+    function checkSolvability() {
+        //input for this : 1 10 15 4 13 6 3 8 2 9 12 7 14 5 0 11
+        const url = 'http://localhost:3000/solvable';
+        const headers = {
+            'Content-Type': 'application/json',
+        };
+        fetch(url,{
+            method: "POST",
+            headers: headers,
+            body: JSON.stringify({ puzzle: puzzleState }),
+        }).then(response => {
+            if (!response.ok) {
+                throw new Error(response.error);
+            }
+            return response.json();
+        }).then(data => {
+            if (data.result) {
+                alert("This puzzle is solvable.");
+                console.log('Puzzle is solvable!');
+            } else {
+                alert("This puzzle is not solvable. Please shuffle the puzzle and try again.");
+                console.log('Puzzle is not solvable.');
+            }
+        }).catch(error => {
+            console.error('Error checking solvability:', error);
+        })
+    }
+
+
+    async function solve() {
+
+        await fetch('http://localhost:3000/solve', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ board: puzzleState }),
+        })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                console.log('Server Response:', data);
+
+                if (data && data.result) {
+                    animateMoves(data.result);
+                } else {
+                    console.error('Error: Unexpected server response format. Missing "result" property.');
+                    alert('Error: Unexpected server response format. Please check the console for details.');
+                }
+            })
+            .catch(error => {
+                console.error('Error solving puzzle:', error);
+
+                alert('Error solving puzzle. Please check the console for details.');
+            });
+    }
+
+    function animateMoves(moves) {
+        let moveIndex = 0;
+
+        function performNextMove() {
+            if (moveIndex < moves.length) {
+                const move = moves[moveIndex];
+                performMove(move);
+
+                moveIndex++;
+                setTimeout(performNextMove, 500); // Set the delay between moves (adjust as needed)
+            }
+        }
+
+        performNextMove();
+    }
+
+    function performMove(move) {
+        const puzzleElements = document.getElementsByClassName("puzzle-item");
+        const puzzleValues = Array.from(puzzleElements).map(element => {
+            const value = parseInt(element.textContent);
+            return isNaN(value) ? 0 : value;
+        });
+
+        const zeroIndex = puzzleValues.indexOf(0    );
+        const adjacentIndex = getAdjacentIndex(zeroIndex, move);
+        onPuzzleItemClick(adjacentIndex);
+        updatePuzzleUI();
+    }
+
+    function getAdjacentIndex(index, move) {
+
+        const gridSize = puzzleSize;
+        switch (move) {
+            case "u":
+                return index - gridSize;
+            case "d":
+                return index + gridSize;
+            case "l":
+                return index - 1;
+            case "r":
+                return index + 1;
+        }
+    }
+
+    function generateInitialState() {
+        const numbers = Array.from({ length: puzzleSize * puzzleSize - 1 }, (_, index) => index + 1);
+        numbers.push(0);
+        numbers.sort(() => Math.random() - 0.5);
+        return numbers;
+    }
+
+    function updatePuzzleUI() {
+        const puzzle = document.getElementById("puzzle");
+        puzzle.innerHTML = "";
+
+        for (let i = 0; i < puzzleSize * puzzleSize; i++) {
+            const puzzleItem = document.createElement("button");
+            puzzleItem.className = "puzzle-item btn btn-light";
+            puzzleItem.textContent = puzzleState[i] === 0 ? "" : puzzleState[i];
+            puzzleItem.onclick = () => onPuzzleItemClick(i);
+            puzzle.appendChild(puzzleItem);
+        }
+    }
+
+    function onPuzzleItemClick(index) {
+        const emptyIndex = puzzleState.indexOf(0);
+        if (isAdjacent(index, emptyIndex)) {
+            [puzzleState[index], puzzleState[emptyIndex]] = [puzzleState[emptyIndex], puzzleState[index]];
+            updatePuzzleUI();
+            steps++;
+            document.getElementById("steps").textContent = steps;
+            if (isPuzzleSolved()) {
+                clearInterval(timerInterval);
+                showCongratulationsModal();
+            }
+        }
+    }
+
+    function isAdjacent(index1, index2) {
+        const row1 = Math.floor(index1 / puzzleSize);
+        const col1 = index1 % puzzleSize;
+        const row2 = Math.floor(index2 / puzzleSize);
+        const col2 = index2 % puzzleSize;
+        return (row1 === row2 && Math.abs(col1 - col2) === 1) || (col1 === col2 && Math.abs(row1 - row2) === 1);
+    }
+
+    function startTimer() {
+        timerInterval = setInterval(() => {
+            timerSeconds++;
+            document.getElementById("timer").textContent = timerSeconds;
+        }, 1000);
+    }
+
+    function showCongratulationsModal() {
+        $('#congratulationsTime').text(timerSeconds);
+        $('#congratulationsSteps').text(steps);
+        $('#congratulationsModal').modal('show');
+    }
+
+    function isPuzzleSolved() {
+        for (let i = 0; i < puzzleSize * puzzleSize - 1; i++) {
+            if (puzzleState[i] !== i + 1) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    function updatePuzzleWithInput() {
+        const inputValues = document.getElementById("inputValues").value;
+        const valuesArray = inputValues.split(" ").map(Number);
+        clearInterval(timerInterval);
+        timerSeconds = 0;
+        steps = 0;
+        document.getElementById("steps").textContent = steps;
+        startTimer();
+        if (validateInput(valuesArray)) {
+            puzzleState = valuesArray;
+            updatePuzzleUI();
+        } else {
+            let max = puzzleSize * puzzleSize - 1;
+            alert(`Invalid input. Please enter numbers from 0 to ${max}. In way: 1 2 3 4 5 6... and zero for empty field.`);
+        }
+
+
+    }
+
+    function applyPuzzleStyle(puzzleSize) {
+        let marginLeft = 0;
+        let gridColumn = puzzleSize;
+
+        switch (puzzleSize) {
+            case 3:
+                marginLeft = 450;
+                break;
+            case 4:
+                marginLeft = 415;
+                break;
+            case 5:
+                marginLeft = 375;
+                break;
+            default:
+                console.error(`Unsupported puzzle size: ${puzzleSize}`);
+                return;
+        }
+
+        const puzzleElement = document.querySelector('.puzzle');
+        if (puzzleElement) {
+            puzzleElement.style.marginLeft = `${marginLeft}px`;
+            puzzleElement.style.gridTemplateColumns = `repeat(${gridColumn}, 1fr)`;
+        } else {
+            console.error('.puzzle element not found');
+        }
+    }
+
+    function validateInput(valuesArray) {
+        if (valuesArray.length !== puzzleSize * puzzleSize) {
+            return false;
+        }
+
+        const sortedValues = [...valuesArray].sort((a, b) => a - b);
+        for (let i = 0; i < puzzleSize * puzzleSize; i++) {
+            if (sortedValues[i] !== i) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+    window.onload = () => {
+        applyPuzzleStyle(puzzleSize);
+        shuffle();
+    }
+</script>
+
+</body>
+</html>
