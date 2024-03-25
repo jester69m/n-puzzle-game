@@ -10,4 +10,4 @@ To start - run to server:
    Make sure node and neccessary libraries installed
 
 Also check presentation to learn more:
-[click here]()
+[click here](https://github.com/jester69m/n-puzzle-game/blob/main/n-puzzle-presentation.pdf)
